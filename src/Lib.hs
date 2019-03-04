@@ -21,10 +21,10 @@ echo = do
 someFunc :: IO ()
 someFunc = do
   -- Right t <- createTransport "127.0.0.1" "10501" (\p -> ("","")) defaultTCPParameters
-  backend <- initializeBackend "127.0.0.1" "10511" initRemoteTable
+  backend <- initializeBackend "127.0.0.1" "10515" initRemoteTable
   nodes <- replicateM 3 $ newLocalNode backend
   node <- newLocalNode backend
-  remotes <- mapM ((flip forkProcess) echo) nodes
+  remotes <- mapM (flip forkProcess echo) nodes
   runProcess node $ do
     -- Spawn another worker on the local node
     echoPid <- spawnLocal $ forever $ echo
@@ -37,7 +37,7 @@ someFunc = do
     send echoPid "hello"
     mapM ((flip send) "hello2") remotes
     self <- getSelfPid
-    mapM ((flip send) (self, "hello")) remotes
+    mapM (flip send (self, "hello")) remotes
     send echoPid (self, "hello")
 
     -- `expectTimeout` waits for a message or times out after "delay"
