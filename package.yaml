@@ -1,6 +1,6 @@
-name:                hShard
+name:                hRaft
 version:             0.1.0.0
-github:              "tvieregge/hShard"
+github:              "tvieregge/hRaft"
 license:             BSD3
 author:              "Tim Vieregge"
 maintainer:          "t.vieregge@protonmail.com"
@@ -8,7 +8,6 @@ copyright:           "2019 Tim Vieregge"
 
 extra-source-files:
 - README.md
-- ChangeLog.md
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package
@@ -17,7 +16,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/tvieregge/hShard#readme>
+description:         Please see the README on GitHub at <https://github.com/tvieregge/hRaft#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -38,7 +37,7 @@ library:
     - binary
 
 executables:
-  hShard-exe:
+  hRaft-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -46,10 +45,10 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - hShard
+    - hRaft
 
 tests:
-  hShard-test:
+  hRaft-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
@@ -57,4 +56,4 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - hShard
+    - hRaft
