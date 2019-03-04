@@ -15,42 +15,25 @@ logMessage :: String -> Process ()
 logMessage msg = say $ "handling " ++ msg
 
 echo = do
-      receiveWait [match logMessage, match replyBack]
+    receiveWait [match logMessage, match replyBack]
 
+mainLoop selfPid backend = do
+    peers <- liftIO $ findPeers backend 1000000
+    liftIO . print $ show peers
+    mapM_ (\x -> nsendRemote x "main" "sending message")
+        $ filter (\x -> x /= (processNodeId selfPid)) peers
+    received <- receiveTimeout (5 * 1000 * 1000) [match logMessage]
+    mainLoop selfPid backend
 
 someFunc :: IO ()
 someFunc = do
-  -- Right t <- createTransport "127.0.0.1" "10501" (\p -> ("","")) defaultTCPParameters
-  backend <- initializeBackend "127.0.0.1" "10518" initRemoteTable
-  nodes <- replicateM 3 $ newLocalNode backend
-  node <- newLocalNode backend
-  -- remotes <- mapM (flip forkProcess echo) nodes
-  runProcess node $ forever $ do
-    peers <- liftIO $ findPeers backend 1000000
-    liftIO . print $  show peers
-    liftIO $ threadDelay 2000000
-    return ()
-    -- -- Spawn another worker on the local node
-    -- echoPid <- spawnLocal $ forever $ echo
-
-    -- -- The `say` function sends a message to a process registered as "logger".
-    -- -- By default, this process simply loops through its mailbox and sends
-    -- -- any received log message strings it finds to stderr.
-
-    -- say "send some messages!"
-    -- send echoPid "hello"
-    -- mapM ((flip send) "hello2") remotes
-    -- self <- getSelfPid
-    -- mapM (flip send (self, "hello")) remotes
-    -- send echoPid (self, "hello")
-
-    -- -- `expectTimeout` waits for a message or times out after "delay"
-    -- m <- expectTimeout 1000000
-    -- case m of
-    --   -- Die immediately - throws a ProcessExitException with the given reason.
-    --   Nothing  -> die "nothing came back!"
-    --   Just s -> say $ "got " ++ s ++ " back!"
-
-    -- -- Without the following delay, the process sometimes exits before the messages are exchanged.
-    -- liftIO $ threadDelay 2000000
-  -- mapM_ closeLocalNode nodes
+    -- Right t <- createTransport "127.0.0.1" "10501" (\p -> ("","")) defaultTCPParameters
+    backend <- initializeBackend "127.0.0.1" "10540" initRemoteTable
+    -- nodes <- replicateM 3 $ newLocalNode backend
+    node <- newLocalNode backend
+    -- remotes <- mapM (flip forkProcess echo) nodes
+    runProcess node $ do
+        selfPid <- getSelfPid
+        register "main" selfPid
+        mainLoop selfPid backend
+        return ()
