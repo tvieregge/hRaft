@@ -19,16 +19,18 @@ echo = do
 
 mainLoop selfPid backend = do
     peers <- liftIO $ findPeers backend 1000000
-    liftIO . print $ show peers
-    mapM_ (\x -> nsendRemote x "main" "sending message")
-        $ filter (\x -> x /= (processNodeId selfPid)) peers
+    let otherPeers = filter (\x -> x /= (processNodeId selfPid)) peers
+    liftIO . print $ show otherPeers
+    mapM_ (\x -> nsendRemote x "main" "sending message") otherPeers
     received <- receiveTimeout (5 * 1000 * 1000) [match logMessage]
-    mainLoop selfPid backend
+    case received of
+         Just msg -> mainLoop selfPid backend
+         Nothing -> return ()
 
 someFunc :: IO ()
 someFunc = do
     -- Right t <- createTransport "127.0.0.1" "10501" (\p -> ("","")) defaultTCPParameters
-    backend <- initializeBackend "127.0.0.1" "10540" initRemoteTable
+    backend <- initializeBackend "127.0.0.1" "10543" initRemoteTable
     -- nodes <- replicateM 3 $ newLocalNode backend
     node <- newLocalNode backend
     -- remotes <- mapM (flip forkProcess echo) nodes
@@ -36,4 +38,3 @@ someFunc = do
         selfPid <- getSelfPid
         register "main" selfPid
         mainLoop selfPid backend
-        return ()
