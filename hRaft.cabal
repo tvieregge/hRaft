@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ca2909dc9d9589088394bfcca203ccb023442d6285d8155d3f917e44acfa21fb
+-- hash: 587343e06aae59dc6fa99e3dbd8d654f4f4f9dd8dba5fbb784440b870ad95942
 
 name:           hRaft
 version:        0.1.0.0
@@ -27,24 +27,18 @@ source-repository head
 library
   exposed-modules:
       Lib
-      Types
   other-modules:
       Paths_hRaft
   hs-source-dirs:
       src
   build-depends:
-      base >=4.7 && <5
+      base >=4.8 && <5
     , binary
-    , bytestring
-    , containers
-    , distributed-process >=0.6.6
-    , distributed-process-async >=0.2.4.1
-    , distributed-process-client-server >=0.2.3
-    , distributed-process-extras >=0.3.2
-    , distributed-process-simplelocalnet >=0.2.3.3
-    , network
-    , network-transport >=0.4.4.0
+    , distributed-process
+    , lens
+    , mtl
     , network-transport-tcp
+    , random
   default-language: Haskell2010
 
 executable hRaft-exe
@@ -55,8 +49,14 @@ executable hRaft-exe
       app
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      base >=4.8 && <5
+    , binary
+    , distributed-process
     , hRaft
+    , lens
+    , mtl
+    , network-transport-tcp
+    , random
   default-language: Haskell2010
 
 test-suite hRaft-test
@@ -68,6 +68,12 @@ test-suite hRaft-test
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      base >=4.8 && <5
+    , binary
+    , distributed-process
     , hRaft
+    , lens
+    , mtl
+    , network-transport-tcp
+    , random
   default-language: Haskell2010

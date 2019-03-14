@@ -19,22 +19,16 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/tvieregge/hRaft#readme>
 
 dependencies:
-- base >= 4.7 && < 5
+- base >=4.8 && <5
+- distributed-process
+- network-transport-tcp
+- binary
+- mtl
+- lens
+- random
 
 library:
   source-dirs: src
-  dependencies:
-    - distributed-process >= 0.6.6
-    - distributed-process-async >= 0.2.4.1
-    - network-transport >= 0.4.4.0
-    - distributed-process-client-server >= 0.2.3
-    - distributed-process-extras >= 0.3.2
-    - distributed-process-simplelocalnet >= 0.2.3.3
-    - containers
-    - network
-    - bytestring
-    - network-transport-tcp
-    - binary
 
 executables:
   hRaft-exe:

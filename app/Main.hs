@@ -1,8 +1,12 @@
 module Main where
 
 import Lib
-import System.Environment
+import Network.Transport.TCP (createTransport, defaultTCPParameters)
+import Control.Distributed.Process.Node (initRemoteTable, runProcess, newLocalNode)
 
--- TODO: properly parse
-main :: IO ()
-main = getArgs >>= (\args -> someFunc $ head args)
+main = do
+    Right transport <- createTransport "localhost" "0" (\p -> ("","")) defaultTCPParameters
+    backendNode <- newLocalNode transport initRemoteTable
+    runProcess backendNode (spawnServers 3)
+    putStrLn "newline to exit"
+    getLine

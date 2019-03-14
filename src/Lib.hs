@@ -1,77 +1,109 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-} -- Allows automatic derivation of e.g. Monad
+{-# LANGUAGE DeriveGeneric              #-} -- Allows Generic, for auto-generation of serialization code
+{-# LANGUAGE TemplateHaskell            #-} -- Allows automatic creation of Lenses for ServerState
+
 module Lib where
 
-import Data.Maybe (catMaybes)
-import Control.Monad (forM)
-import Network.Socket
-import Control.Monad (replicateM)
+import Control.Distributed.Process (Process, ProcessId,
+    send, say, expect, getSelfPid, spawnLocal, match, receiveWait)
+
+import Data.Binary (Binary) -- Objects have to be binary to send over the network
+import GHC.Generics (Generic) -- For auto-derivation of serialization
+import Data.Typeable (Typeable) -- For safe serialization
+
+import Control.Monad.RWS.Strict (
+    RWS, MonadReader, MonadWriter, MonadState,
+    ask, tell, get, put, execRWS, liftIO)
+import Control.Monad (replicateM, forever)
 import Control.Concurrent (threadDelay)
-import Control.Monad (forever)
-import Control.Distributed.Process
-import Control.Distributed.Process.Node (runProcess, forkProcess, initRemoteTable, closeLocalNode)
-import Network.Transport.TCP (createTransport, defaultTCPParameters)
-import Control.Distributed.Process.Backend.SimpleLocalnet
+import Control.Lens (makeLenses, (+=), (%%=))
 
-import Types
+import System.Random (StdGen, Random, randomR, newStdGen)
 
--- replyBack :: (ProcessId, String) -> Process ()
--- replyBack (sender, msg) = send sender msg
+data Message = Message {senderOf :: ProcessId, recipientOf :: ProcessId}
+               deriving (Show, Generic, Typeable)
 
-heartbeatMsg :: String -> Process ()
-heartbeatMsg msg = say $ "handling " ++ msg
+data Tick = Tick deriving (Show, Generic, Typeable)
 
-votedFor :: VoteFor -> Process ()
-votedFor msg = liftIO $ print "Got vote" >>= return
+data RaftState = Leader | Follower | Candidate
+               deriving (Show, Generic, Typeable, Eq)
 
-voteStarted :: StartVote -> Process ()
-voteStarted (StartVote nId) = nsendRemote nId "main" VoteFor
+instance Binary RaftState
+instance Binary Message
+instance Binary Tick
 
--- An implicit state machine, doesn't protect against calling into bad states.
--- TODO: Use types to enforce proper state transitions
--- TODO: Separate out pure portions
-runRaft :: RaftState -> RaftEvent -> Process RaftState
-runRaft (Follower stateInfo) HeartBeat = followerLoop stateInfo
-runRaft (Candidate stateInfo) Timeout = candidateLoop stateInfo
-runRaft (Leader stateInfo) VotedIn = do
-    liftIO $ print "Leader state: unimplemented"
-    receiveTimeout (1000*100) []
-    die "Leader not implemented"
+-- TODO: Use lenses here
+data ServerState = ServerState {
+    raftState :: RaftState,
+    randomGen :: StdGen,
+    ticksSinceMsg :: Integer
+} deriving (Show)
 
-candidateLoop :: RaftStateInfo -> Process RaftState
-candidateLoop state@(RaftStateInfo selfPid backend) = do
-    liftIO $ print "Candidate state"
+data ServerConfig = ServerConfig {
+    myId  :: ProcessId,
+    peers :: [ProcessId]
+} deriving (Show)
 
-    peers <- liftIO $ findPeers backend 1000000
-    let otherPeers = filter (\x -> x /= (processNodeId selfPid)) peers
-    liftIO . print $ show otherPeers
-    mapM_ (\x -> nsendRemote x "main" (StartVote $ processNodeId selfPid)) otherPeers
-    recieved <- forM otherPeers . const $ receiveTimeout (1000 * 1000) [match votedFor]
+newtype ServerAction a = ServerAction {runAction :: RWS ServerConfig [Message] ServerState a}
+    deriving (Functor, Applicative, Monad, MonadState ServerState,
+              MonadWriter [Message], MonadReader ServerConfig)
 
-    let numPeersNeeded = length otherPeers
-    let numGot = length $ catMaybes recieved
-    liftIO . print $ "needed: " ++ show numPeersNeeded
-    liftIO . print $ "got   : " ++ (show numGot)
+tickHandler :: Tick -> ServerAction ()
+tickHandler Tick = do
+    state@(ServerState raftState _ curTick) <- get
+    put (state { ticksSinceMsg = curTick + 1})
+    case raftState of
+         Leader -> sendHeartbeat
+         Follower -> follower
+         _ -> error "not implemented raftState"
 
-    if numGot >= numPeersNeeded
-       then runRaft (Leader state) VotedIn
-       else runRaft (Candidate state) Timeout
+follower :: ServerAction ()
+follower = do
+    state@(ServerState _ _ ticks) <- get
+    if ticks >= 2
+       then startElection
+       else return ()
 
-followerLoop :: RaftStateInfo -> Process RaftState
-followerLoop state@(RaftStateInfo selfPid backend) = do
-    liftIO $ print "Follower state"
-    received <- receiveTimeout (5 * 1000 * 1000) [match heartbeatMsg, match voteStarted]
-    case received of
-         Just msg -> runRaft (Follower state) HeartBeat
-         Nothing -> runRaft (Candidate state) Timeout
+startElection :: ServerAction ()
+startElection = do
+    state <- get
+    put $ state { raftState = Leader, ticksSinceMsg = 0 }
+    sendHeartbeat
 
-someFunc :: ServiceName -> IO ()
-someFunc serviceName = do
-    -- Right t <- createTransport "127.0.0.1" "10501" (\p -> ("","")) defaultTCPParameters
-    backend <- initializeBackend "127.0.0.1" serviceName initRemoteTable
-    -- nodes <- replicateM 3 $ newLocalNode backend
-    node <- newLocalNode backend
-    -- remotes <- mapM (flip forkProcess echo) nodes
-    runProcess node $ do
-        selfPid <- getSelfPid
-        register "main" selfPid
-        runRaft (Follower (RaftStateInfo selfPid backend)) HeartBeat
-        return ()
+msgHandler :: Message -> ServerAction ()
+msgHandler (Message sender recipient) = do
+    state <- get
+    put (state { ticksSinceMsg = 0 })
+    return ()
+
+sendHeartbeat :: ServerAction ()
+sendHeartbeat = do
+    ServerConfig myId peers <- ask
+    tell $ map (Message myId) peers --[Message myId recipient]
+
+runServer :: ServerConfig -> ServerState -> Process ()
+runServer config state = do
+    let run handler msg = return $ execRWS (runAction $ handler msg) config state
+    (state', outputMessages) <- receiveWait [
+            match $ run msgHandler,
+            match $ run tickHandler]
+    say $ "Current state: " ++ show state' ++ show config
+    mapM (\msg -> send (recipientOf msg) msg) outputMessages
+    runServer config state'
+
+spawnServer :: Process ProcessId
+spawnServer = spawnLocal $ do
+    myPid <- getSelfPid
+    otherPids <- fmap (filter (/= myPid)) expect
+    randomGen <- liftIO newStdGen
+    let random = fst $ randomR (10^6, 15^6) randomGen :: Int
+    spawnLocal $ forever $ do
+        liftIO $ threadDelay (random)
+        send myPid Tick
+    runServer (ServerConfig myPid otherPids) (ServerState Follower randomGen 0)
+
+spawnServers :: Int -> Process ()
+spawnServers count = do
+    pids <- replicateM count spawnServer
+    mapM_ (`send` pids) pids
+
