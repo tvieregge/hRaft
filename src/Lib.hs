@@ -1,6 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-} -- Allows automatic derivation of e.g. Monad
 {-# LANGUAGE DeriveGeneric              #-} -- Allows Generic, for auto-generation of serialization code
-{-# LANGUAGE TemplateHaskell            #-} -- Allows automatic creation of Lenses for ServerState
 
 module Lib where
 
@@ -20,7 +19,9 @@ import Control.Lens (makeLenses, (+=), (%%=))
 
 import System.Random (StdGen, Random, randomR, newStdGen)
 
-data Message = Message {senderOf :: ProcessId, recipientOf :: ProcessId}
+data Message = Heartbeat {sender :: ProcessId, recipient :: ProcessId}
+             | VoteRequest {sender :: ProcessId, recipient :: ProcessId}
+             | VoteResponse {recipient :: ProcessId}
                deriving (Show, Generic, Typeable)
 
 data Tick = Tick deriving (Show, Generic, Typeable)
@@ -54,11 +55,11 @@ tickHandler Tick = do
     put (state { ticksSinceMsg = curTick + 1})
     case raftState of
          Leader -> sendHeartbeat
-         Follower -> follower
-         _ -> error "not implemented raftState"
+         Follower -> handleTickFollower
+         Candidate -> return ()
 
-follower :: ServerAction ()
-follower = do
+handleTickFollower :: ServerAction ()
+handleTickFollower = do
     state@(ServerState _ _ ticks) <- get
     if ticks >= 2
        then startElection
@@ -67,19 +68,37 @@ follower = do
 startElection :: ServerAction ()
 startElection = do
     state <- get
-    put $ state { raftState = Leader, ticksSinceMsg = 0 }
-    sendHeartbeat
+    put $ state { raftState = Candidate, ticksSinceMsg = 0 }
+    sendInitiation
 
 msgHandler :: Message -> ServerAction ()
-msgHandler (Message sender recipient) = do
+msgHandler (Heartbeat sender recipient) = do
     state <- get
     put (state { ticksSinceMsg = 0 })
     return ()
+msgHandler (VoteRequest sender _) = do
+    ServerState rState _ _ <- get
+    case rState of
+         Follower -> tell [VoteResponse sender]
+         Candidate -> error "unimplemented"
+         Leader -> error "unimplemented"
+msgHandler (VoteResponse _) = do
+    state <- get
+    case raftState state of
+         Follower -> error "unimplemented"
+         Candidate -> put (state {raftState = Leader}) -- only need one for now
+         Leader -> error "unimplemented"
+
+
+sendInitiation :: ServerAction ()
+sendInitiation = do
+    ServerConfig myId peers <- ask
+    tell $ map (VoteRequest myId) peers
 
 sendHeartbeat :: ServerAction ()
 sendHeartbeat = do
     ServerConfig myId peers <- ask
-    tell $ map (Message myId) peers --[Message myId recipient]
+    tell $ map (Heartbeat myId) peers
 
 runServer :: ServerConfig -> ServerState -> Process ()
 runServer config state = do
@@ -87,8 +106,8 @@ runServer config state = do
     (state', outputMessages) <- receiveWait [
             match $ run msgHandler,
             match $ run tickHandler]
-    say $ "Current state: " ++ show state' ++ show config
-    mapM (\msg -> send (recipientOf msg) msg) outputMessages
+    say $ "Current state: " ++ show state' ++ show outputMessages
+    mapM (\msg -> send (recipient msg) msg) outputMessages
     runServer config state'
 
 spawnServer :: Process ProcessId
