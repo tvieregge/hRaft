@@ -115,7 +115,7 @@ spawnServer = spawnLocal $ do
     myPid <- getSelfPid
     otherPids <- fmap (filter (/= myPid)) expect
     randomGen <- liftIO newStdGen
-    let random = fst $ randomR (10^6, 15^6) randomGen :: Int
+    let random = fst $ randomR (10^6, 2*10^6) randomGen :: Int
     spawnLocal $ forever $ do
         liftIO $ threadDelay (random)
         send myPid Tick
