@@ -74,24 +74,24 @@ startElection = do
     tell $ sendInitiation (myId config) (peers config)
 
 msgHandler :: Message -> ServerAction ()
-msgHandler (Heartbeat sender recipient) = do
+msgHandler msg = do
     state <- get
-    put (state { ticksSinceMsg = 0 })
-    return ()
-msgHandler (VoteRequest sender _) = do
-    state@(ServerState rState _ _) <- get
-    put (state { ticksSinceMsg = 0 })
-    case rState of
-         Follower -> tell [VoteResponse sender]
-         Candidate -> return ()
-         Leader -> return ()
+    let (raftState', msgs) = msgHelper (raftState state) msg
+    tell msgs
+    put (state { ticksSinceMsg = 0, raftState = raftState' })
 
-msgHandler (VoteResponse _) = do
-    state <- get
-    case raftState state of
-         Follower -> return ()
-         Candidate -> put (state {raftState = Leader}) -- only need one for now
-         Leader -> return ()
+msgHelper :: RaftState -> Message -> (RaftState, [Message])
+msgHelper rState (Heartbeat sender recipient) = (rState, [])
+msgHelper rState (VoteRequest sender _) =
+    case rState of
+         Follower -> (rState, [VoteResponse sender])
+         Candidate -> (rState, [])
+         Leader -> (rState, [])
+msgHelper rState (VoteResponse _) =
+    case rState of
+         Follower -> (rState, [])
+         Candidate -> (Leader, []) -- only need one for now
+         Leader -> (rState, [])
 
 sendInitiation :: ProcessId -> [ProcessId] -> [Message]
 sendInitiation myId peers = do
