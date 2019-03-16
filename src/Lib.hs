@@ -53,8 +53,9 @@ tickHandler :: Tick -> ServerAction ()
 tickHandler Tick = do
     state@(ServerState raftState _ curTick) <- get
     put (state { ticksSinceMsg = curTick + 1})
+    config <- ask
     case raftState of
-         Leader -> sendHeartbeat
+         Leader -> sendHeartbeat (myId config) (peers config)
          Follower -> handleTickFollower
          Candidate -> return ()
 
@@ -68,8 +69,9 @@ handleTickFollower = do
 startElection :: ServerAction ()
 startElection = do
     state <- get
+    config <- ask
     put $ state { raftState = Candidate, ticksSinceMsg = 0 }
-    sendInitiation
+    sendInitiation (myId config) (peers config)
 
 msgHandler :: Message -> ServerAction ()
 msgHandler (Heartbeat sender recipient) = do
@@ -89,15 +91,12 @@ msgHandler (VoteResponse _) = do
          Candidate -> put (state {raftState = Leader}) -- only need one for now
          Leader -> error "unimplemented"
 
-
-sendInitiation :: ServerAction ()
-sendInitiation = do
-    ServerConfig myId peers <- ask
+sendInitiation :: ProcessId -> [ProcessId] -> ServerAction ()
+sendInitiation myId peers = do
     tell $ map (VoteRequest myId) peers
 
-sendHeartbeat :: ServerAction ()
-sendHeartbeat = do
-    ServerConfig myId peers <- ask
+sendHeartbeat :: ProcessId -> [ProcessId] -> ServerAction ()
+sendHeartbeat myId peers = do
     tell $ map (Heartbeat myId) peers
 
 runServer :: ServerConfig -> ServerState -> Process ()
