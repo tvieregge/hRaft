@@ -55,7 +55,7 @@ tickHandler Tick = do
     put (state { ticksSinceMsg = curTick + 1})
     config <- ask
     case raftState of
-         Leader -> sendHeartbeat (myId config) (peers config)
+         Leader -> tell $ sendHeartbeat (myId config) (peers config)
          Follower -> handleTickFollower
          Candidate -> return ()
 
@@ -71,7 +71,7 @@ startElection = do
     state <- get
     config <- ask
     put $ state { raftState = Candidate, ticksSinceMsg = 0 }
-    sendInitiation (myId config) (peers config)
+    tell $ sendInitiation (myId config) (peers config)
 
 msgHandler :: Message -> ServerAction ()
 msgHandler (Heartbeat sender recipient) = do
@@ -79,25 +79,27 @@ msgHandler (Heartbeat sender recipient) = do
     put (state { ticksSinceMsg = 0 })
     return ()
 msgHandler (VoteRequest sender _) = do
-    ServerState rState _ _ <- get
+    state@(ServerState rState _ _) <- get
+    put (state { ticksSinceMsg = 0 })
     case rState of
          Follower -> tell [VoteResponse sender]
-         Candidate -> error "unimplemented"
-         Leader -> error "unimplemented"
+         Candidate -> return ()
+         Leader -> return ()
+
 msgHandler (VoteResponse _) = do
     state <- get
     case raftState state of
-         Follower -> error "unimplemented"
+         Follower -> return ()
          Candidate -> put (state {raftState = Leader}) -- only need one for now
-         Leader -> error "unimplemented"
+         Leader -> return ()
 
-sendInitiation :: ProcessId -> [ProcessId] -> ServerAction ()
+sendInitiation :: ProcessId -> [ProcessId] -> [Message]
 sendInitiation myId peers = do
-    tell $ map (VoteRequest myId) peers
+    map (VoteRequest myId) peers
 
-sendHeartbeat :: ProcessId -> [ProcessId] -> ServerAction ()
+sendHeartbeat :: ProcessId -> [ProcessId] -> [Message]
 sendHeartbeat myId peers = do
-    tell $ map (Heartbeat myId) peers
+    map (Heartbeat myId) peers
 
 runServer :: ServerConfig -> ServerState -> Process ()
 runServer config state = do
@@ -105,7 +107,7 @@ runServer config state = do
     (state', outputMessages) <- receiveWait [
             match $ run msgHandler,
             match $ run tickHandler]
-    say $ "Current state: " ++ show state' ++ show outputMessages
+    say $ show state' ++ " " ++ show outputMessages
     mapM (\msg -> send (recipient msg) msg) outputMessages
     runServer config state'
 
